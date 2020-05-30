@@ -1,1 +1,10 @@
-<manifest package="multi.process.prefs" />
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="multi.process.prefs">
+
+    <application>
+        <provider
+            android:name=".MultiProvider"
+            android:authorities="${applicationId}.multiprocessprefs"
+            android:exported="false" />
+    </application>
+</manifest>
