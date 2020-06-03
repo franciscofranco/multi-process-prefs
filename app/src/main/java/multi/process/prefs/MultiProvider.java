@@ -3,9 +3,7 @@ package multi.process.prefs;
 import android.content.ContentProvider;
 import android.content.ContentResolver;
 import android.content.ContentValues;
-import android.content.Context;
 import android.content.UriMatcher;
-import android.content.pm.ProviderInfo;
 import android.database.Cursor;
 import android.database.MatrixCursor;
 import android.net.Uri;
@@ -18,20 +16,22 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class MultiProvider extends ContentProvider {
+    private static final String PROVIDER_NAME = BuildConfig.LIBRARY_PACKAGE_NAME + ".multiprocessprefs";
+
     /**
      * Define all Content Urls for each type, String, int, long & boolean
      */
-    private static String URL_STRING;
-    private static String URL_INT;
-    private static String URL_LONG;
-    private static String URL_BOOLEAN;
-    private static String URL_ALL;
-    private static String URL_FLOAT;
-    private static String URL_HAS_KEY;
+    private static final String URL_STRING = "content://" + PROVIDER_NAME + "/string/";
+    private static final String URL_INT = "content://" + PROVIDER_NAME + "/integer/";
+    private static final String URL_LONG = "content://" + PROVIDER_NAME + "/long/";
+    private static final String URL_BOOLEAN = "content://" + PROVIDER_NAME + "/boolean/";
+    private static final String URL_ALL = "content://" + PROVIDER_NAME + "/all/";
+    private static final String URL_FLOAT = "content://" + PROVIDER_NAME + "/float/";
+    private static final String URL_HAS_KEY = "content://" + PROVIDER_NAME + "/haskey/";
 
     // Special URL just for clearing preferences
-    private static String URL_PREFERENCES;
-    private static String URL_DELETE_KEY;
+    private static final String URL_PREFERENCES = "content://" + PROVIDER_NAME + "/prefs/";
+    private static final String URL_DELETE_KEY = "content://" + PROVIDER_NAME + "/remove/";
 
     static final int CODE_STRING = 1;
     static final int CODE_INTEGER = 2;
@@ -49,42 +49,25 @@ public class MultiProvider extends ContentProvider {
     /**
      * Create UriMatcher to match all requests
      */
-    private static UriMatcher uriMatchers;
+    private static final UriMatcher uriMatchers;
+
+    static {
+        uriMatchers = new UriMatcher(UriMatcher.NO_MATCH);
+        // */* = wildcard  (name or file name / key)
+        uriMatchers.addURI(PROVIDER_NAME, "string/*/*", CODE_STRING);
+        uriMatchers.addURI(PROVIDER_NAME, "integer/*/*", CODE_INTEGER);
+        uriMatchers.addURI(PROVIDER_NAME, "long/*/*", CODE_LONG);
+        uriMatchers.addURI(PROVIDER_NAME, "boolean/*/*", CODE_BOOLEAN);
+        uriMatchers.addURI(PROVIDER_NAME, "prefs/*/", CODE_PREFS);
+        uriMatchers.addURI(PROVIDER_NAME, "all/*/*", CODE_ALL);
+        uriMatchers.addURI(PROVIDER_NAME, "float/*/*", CODE_FLOAT);
+        uriMatchers.addURI(PROVIDER_NAME, "haskey/*/*", CODE_HAS_KEY);
+        uriMatchers.addURI(PROVIDER_NAME, "remove/*/*", CODE_REMOVE_KEY);
+    }
 
     // Use a concurrentHashMap here to make sure it's safe to read & write from multiple threads
     // and not throw an Exception
     private Map<String, PreferenceInteractor> prefsMap = new ConcurrentHashMap<>();
-
-    @Override
-    public void attachInfo(Context context, ProviderInfo info) {
-        String authority = info.authority;
-
-        uriMatchers = new UriMatcher(UriMatcher.NO_MATCH);
-        // */* = wildcard  (name or file name / key)
-        uriMatchers.addURI(authority, "string/*/*", CODE_STRING);
-        uriMatchers.addURI(authority, "integer/*/*", CODE_INTEGER);
-        uriMatchers.addURI(authority, "long/*/*", CODE_LONG);
-        uriMatchers.addURI(authority, "boolean/*/*", CODE_BOOLEAN);
-        uriMatchers.addURI(authority, "prefs/*/", CODE_PREFS);
-        uriMatchers.addURI(authority, "all/*/*", CODE_ALL);
-        uriMatchers.addURI(authority, "float/*/*", CODE_FLOAT);
-        uriMatchers.addURI(authority, "haskey/*/*", CODE_HAS_KEY);
-        uriMatchers.addURI(authority, "remove/*/*", CODE_REMOVE_KEY);
-
-        URL_STRING = "content://" + authority + "/string/";
-        URL_INT = "content://" + authority + "/integer/";
-        URL_LONG = "content://" + authority + "/long/";
-        URL_BOOLEAN = "content://" + authority + "/boolean/";
-        URL_ALL = "content://" + authority + "/all/";
-        URL_FLOAT = "content://" + authority + "/float/";
-        URL_HAS_KEY = "content://" + authority + "/haskey/";
-
-        // Special URL just for clearing preferences
-        URL_PREFERENCES = "content://" + authority + "/prefs/";
-        URL_DELETE_KEY = "content://" + authority + "/remove/";
-
-        super.attachInfo(context, info);
-    }
 
     @Override
     public boolean onCreate() {
