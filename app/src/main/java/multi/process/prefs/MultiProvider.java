@@ -13,9 +13,9 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class MultiProvider extends ContentProvider {
-
     private static final String PROVIDER_NAME = BuildConfig.LIBRARY_PACKAGE_NAME + ".multiprocessprefs";
 
     /**
@@ -49,26 +49,25 @@ public class MultiProvider extends ContentProvider {
     /**
      * Create UriMatcher to match all requests
      */
-    private static final UriMatcher mUriMatcher;
+    private static final UriMatcher uriMatchers;
 
     static {
-        mUriMatcher = new UriMatcher(UriMatcher.NO_MATCH);
+        uriMatchers = new UriMatcher(UriMatcher.NO_MATCH);
         // */* = wildcard  (name or file name / key)
-        mUriMatcher.addURI(PROVIDER_NAME, "string/*/*", CODE_STRING);
-        mUriMatcher.addURI(PROVIDER_NAME, "integer/*/*", CODE_INTEGER);
-        mUriMatcher.addURI(PROVIDER_NAME, "long/*/*", CODE_LONG);
-        mUriMatcher.addURI(PROVIDER_NAME, "boolean/*/*", CODE_BOOLEAN);
-        mUriMatcher.addURI(PROVIDER_NAME, "prefs/*/", CODE_PREFS);
-        mUriMatcher.addURI(PROVIDER_NAME, "all/*/*", CODE_ALL);
-        mUriMatcher.addURI(PROVIDER_NAME, "float/*/*", CODE_FLOAT);
-        mUriMatcher.addURI(PROVIDER_NAME, "haskey/*/*", CODE_HAS_KEY);
-        mUriMatcher.addURI(PROVIDER_NAME, "remove/*/*", CODE_REMOVE_KEY);
+        uriMatchers.addURI(PROVIDER_NAME, "string/*/*", CODE_STRING);
+        uriMatchers.addURI(PROVIDER_NAME, "integer/*/*", CODE_INTEGER);
+        uriMatchers.addURI(PROVIDER_NAME, "long/*/*", CODE_LONG);
+        uriMatchers.addURI(PROVIDER_NAME, "boolean/*/*", CODE_BOOLEAN);
+        uriMatchers.addURI(PROVIDER_NAME, "prefs/*/", CODE_PREFS);
+        uriMatchers.addURI(PROVIDER_NAME, "all/*/*", CODE_ALL);
+        uriMatchers.addURI(PROVIDER_NAME, "float/*/*", CODE_FLOAT);
+        uriMatchers.addURI(PROVIDER_NAME, "haskey/*/*", CODE_HAS_KEY);
+        uriMatchers.addURI(PROVIDER_NAME, "remove/*/*", CODE_REMOVE_KEY);
     }
 
-    /**
-     * Map to hold all current Inter actors with shared preferences
-     */
-    private ArrayMap<String, PreferenceInteractor> mPreferenceMap = new ArrayMap<>();
+    // Use a concurrentHashMap here to make sure it's safe to read & write from multiple threads
+    // and not throw an Exception
+    private Map<String, PreferenceInteractor> prefsMap = new ConcurrentHashMap<>();
 
     @Override
     public boolean onCreate() {
@@ -82,13 +81,15 @@ public class MultiProvider extends ContentProvider {
      * @return a new interactor, or current one in the map
      */
     PreferenceInteractor getPreferenceInteractor(String preferenceName) {
-        if (mPreferenceMap.containsKey(preferenceName)) {
-            return mPreferenceMap.get(preferenceName);
-        } else {
-            final PreferenceInteractor interactor = new PreferenceInteractor(getContext(), preferenceName);
-            mPreferenceMap.put(preferenceName, interactor);
-            return interactor;
+        PreferenceInteractor pref = prefsMap.get(preferenceName);
+
+        if (pref != null) {
+            return pref;
         }
+
+        pref = new PreferenceInteractor(getContext(), preferenceName);
+        prefsMap.put(preferenceName, pref);
+        return pref;
     }
 
     @Nullable
@@ -96,7 +97,7 @@ public class MultiProvider extends ContentProvider {
     public Cursor query(@NonNull Uri uri, String[] projection, String selection, String[] selectionArgs, String sortOrder) {
         final PreferenceInteractor interactor = getPreferenceInteractor(uri.getPathSegments().get(1));
 
-        switch (mUriMatcher.match(uri)) {
+        switch (uriMatchers.match(uri)) {
             case CODE_STRING:
                 final String s = uri.getPathSegments().get(2);
                 return interactor.hasKey(s) ? preferenceToCursor(interactor.getString(s)) : null;
@@ -126,36 +127,34 @@ public class MultiProvider extends ContentProvider {
     @Override
     public int update(@NonNull Uri uri, ContentValues values, String selection, String[] selectionArgs) {
         if (values != null) {
-            final PreferenceInteractor interactor = getPreferenceInteractor(uri.getPathSegments().get(1));
+            final PreferenceInteractor pref = getPreferenceInteractor(uri.getPathSegments().get(1));
             final String key = values.getAsString(KEY);
 
-            switch (mUriMatcher.match(uri)) {
+            switch (uriMatchers.match(uri)) {
                 case CODE_STRING:
                     final String s = values.getAsString(VALUE);
-                    interactor.setString(key, s);
+                    pref.setString(key, s);
                     break;
                 case CODE_INTEGER:
                     final int i = values.getAsInteger(VALUE);
-                    interactor.setInt(key, i);
+                    pref.setInt(key, i);
                     break;
                 case CODE_LONG:
                     final long l = values.getAsLong(VALUE);
-                    interactor.setLong(key, l);
+                    pref.setLong(key, l);
                     break;
                 case CODE_BOOLEAN:
                     final boolean b = values.getAsBoolean(VALUE);
-                    interactor.setBoolean(key, b);
+                    pref.setBoolean(key, b);
                     break;
                 case CODE_FLOAT:
                     final float f = values.getAsFloat(VALUE);
-                    interactor.setFloat(key, f);
-                    break;
+                    pref.setFloat(key, f);
             }
 
             getContext().getContentResolver().notifyChange(uri, null);
-        } else {
-            throw new IllegalArgumentException("Content Values are null!");
         }
+
         return 0;
     }
 
@@ -163,15 +162,13 @@ public class MultiProvider extends ContentProvider {
     public int delete(@NonNull Uri uri, String selection, String[] selectionArgs) {
         final PreferenceInteractor interactor = getPreferenceInteractor(uri.getPathSegments().get(1));
 
-        switch (mUriMatcher.match(uri)) {
+        switch (uriMatchers.match(uri)) {
             case CODE_REMOVE_KEY:
                 interactor.removePref(uri.getPathSegments().get(2));
                 break;
             case CODE_PREFS:
                 interactor.clearPreference();
                 break;
-            default:
-                throw new IllegalStateException(" unsupported uri : " + uri);
         }
         return 0;
     }
@@ -342,9 +339,8 @@ public class MultiProvider extends ContentProvider {
             contentValues.put(MultiProvider.VALUE, (Boolean) value);
         } else if (value instanceof Float) {
             contentValues.put(MultiProvider.VALUE, (Float) value);
-        } else {
-            throw new IllegalArgumentException("Unsupported type " + value.getClass());
         }
+
         return contentValues;
     }
 
